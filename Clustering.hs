@@ -33,24 +33,28 @@ diff x y
   | x == y = 0.0
   | otherwise = 1.0
 
-kmeans k = do
+kmeans k r = do
   d <- parseData
   g <- newStdGen
   let rs = take k . nub $ (randomRs (1,length d) g :: [Int]) --random indices for initial centroids
       cs = getCentroids rs d
-      assignments = groupBy ((==) `on` snd) (sortBy (second) (map (assign cs) d))
-      newCentroids = map (calcMode . (map fst)) assignments
-      newAssignments =  groupBy ((==) `on` snd) (sortBy (second) (map (assign newCentroids) (concat $ map (map (fst)) assignments)))
-  return (newAssignments)
+  finalCentroids <- loop cs d r
+  return (finalCentroids)
+
+  --assignments = groupBy ((==) `on` snd) (sortBy (second) (map (assign cs) d))
+  --newCentroids = map (calcMode . (map fst)) assignments
+  --newAssignments =  groupBy ((==) `on` snd) (sortBy (second) (map (assign newCentroids) (concat $ map (map (fst)) assignments)))
 
 second a b = compare (snd a) (snd b)
 
-loop cs d = do
-  let assignments = groupBy ((==) `on` snd) (sortBy (second) (map (assign cs) d))
+loop cs d r = do
+  let assignments = groupBy ((==) `on` snd) (sortBy (second) (map (assign cs r) d))
       newCentroids = map (calcMode . (map fst)) assignments
   if(newCentroids == cs)
     then return newCentroids
-    else loop newCentroids d
+    else do
+      putStrLn "Looping..."
+      loop newCentroids d r
 
 --printLength :: [[(Features, Int)]]
 printLength (a:as) = do
@@ -58,13 +62,20 @@ printLength (a:as) = do
   printLength as
 
 --assign a feature vector based off of centroids
-assign :: [Features] -> Features -> (Features,Int)
-assign cs v = helper [] v cs
+assign :: [Features] -> Double -> Features -> (Features,Int)
+assign cs r v = helper [] v cs r
   where
-    helper acc v [] = (v,minIndex acc)
-    helper acc v (c:cs) = helper (acc ++ [(calcDistance v c 2.0)]) v cs
+    helper acc v [] r = (v,minIndex acc)
+    helper acc v (c:cs) r = helper (acc ++ [(calcDistance v c r)]) v cs r
 
 minIndex xs = head $ filter ((== minimum xs) . (xs !!)) [0..]
+
+normalize :: Features -> [(Int,Int)] -> Features
+normalize x ranges = helper [] x ranges
+  where
+    helper acc [] _ = acc
+    helper acc ((Category x):xs) r = helper (acc ++ [Category x]) xs r
+    helper acc ((Numeric x):xs) ((mi,ma):rs) = helper (acc ++ [Numeric ((x - mi)`div`(ma - mi))]) xs rs 
 
 getCentroids :: [Int] -> [Features] -> [Features]
 getCentroids rs d = helper [] rs d
