@@ -11,7 +11,7 @@ dataSet = [[2,2],[2,1],[0,0],[1,0],[0,1],[1,2]]
 
 --run = kmeans 2 dataSet
 
-data Vals = Numeric Int | Category Int deriving (Eq, Ord)
+data Vals = Numeric Double | Category Int deriving (Eq, Ord)
 type Features = [Vals]
 
 instance Show Vals where
@@ -24,7 +24,7 @@ mode xs = map fst $ filter ((==best).snd) counts
           best = maximum (map snd counts)
 
 mean :: Features -> Vals
-mean vs = Numeric ((add 0 vs) `div` length vs)
+mean vs = Numeric ((add 0 vs) / fromIntegral (length vs))
   where
     add acc [] = acc
     add acc ((Numeric x):xs) = add (acc + x) xs
@@ -36,20 +36,24 @@ diff x y
 kmeans k r = do
   d <- parseData
   g <- newStdGen
-  let rs = take k . nub $ (randomRs (1,length d) g :: [Int]) --random indices for initial centroids
-      cs = getCentroids rs d
-  finalCentroids <- loop cs d r
+  let ranges = calcRanges d
+      normalizeD = map (normalize ranges) d
+      rs = take k . nub $ (randomRs (1,length d) g :: [Int]) --random indices for initial centroids
+      cs = getCentroids rs normalizeD
+  finalCentroids <- loop cs normalizeD r
   return (finalCentroids)
 
+
+
   --assignments = groupBy ((==) `on` snd) (sortBy (second) (map (assign cs) d))
-  --newCentroids = map (calcMode . (map fst)) assignments
+  --newCentroids = map (calcPrototype . (map fst)) assignments
   --newAssignments =  groupBy ((==) `on` snd) (sortBy (second) (map (assign newCentroids) (concat $ map (map (fst)) assignments)))
 
 second a b = compare (snd a) (snd b)
 
 loop cs d r = do
   let assignments = groupBy ((==) `on` snd) (sortBy (second) (map (assign cs r) d))
-      newCentroids = map (calcMode . (map fst)) assignments
+      newCentroids = map (calcPrototype . (map fst)) assignments
   if(newCentroids == cs)
     then return newCentroids
     else do
@@ -70,13 +74,27 @@ assign cs r v = helper [] v cs r
 
 minIndex xs = head $ filter ((== minimum xs) . (xs !!)) [0..]
 
-normalize :: Features -> [(Int,Int)] -> Features
-normalize x ranges = helper [] x ranges
+--given the entire initial dataset, find min and max values for numeric features
+calcRanges :: [Features] -> [(Double,Double)]
+calcRanges x = helper [] (map (filter isNumeric) x)
+  where
+    helper acc [] = error $ "huh?"
+    helper acc xs = case (head xs) of
+      [] -> acc
+      _  -> helper (acc ++ [strip (minimum (map head xs),maximum (map head xs))]) (map tail xs)
+    strip (Numeric x, Numeric y) = (x,y)
+    isNumeric (Numeric x) = True
+    isNumeric _           = False
+
+-- normalize a feature vector based on pre-calculated ranges
+normalize :: [(Double,Double)] -> Features -> Features
+normalize ranges x = helper [] x ranges
   where
     helper acc [] _ = acc
     helper acc ((Category x):xs) r = helper (acc ++ [Category x]) xs r
-    helper acc ((Numeric x):xs) ((mi,ma):rs) = helper (acc ++ [Numeric ((x - mi)`div`(ma - mi))]) xs rs 
+    helper acc ((Numeric x):xs) ((mi,ma):rs) = helper (acc ++ [Numeric ((x - mi) / (ma - mi))]) xs rs
 
+--initial random selection for centroids.
 getCentroids :: [Int] -> [Features] -> [Features]
 getCentroids rs d = helper [] rs d
   where
@@ -92,16 +110,17 @@ at v i = helper 0 v i
       | c < i = helper (c+1) vs i
       | otherwise = error "Index too large"
 
-
+--calculate distance between feature vectors given a constant for categorical significance
 calcDistance :: Features -> Features -> Double -> Double
 calcDistance v1 v2 r = helper 0.0 v1 v2 r
   where
     helper dist [] [] _ = dist
     helper dist ((Category v):vs) ((Category w):ws) r = helper (((diff v w) * r) + dist) vs ws r
-    helper dist ((Numeric v):vs) ((Numeric w):ws) r = helper ((abs(fromIntegral v - fromIntegral w) ** 2) + dist) vs ws r
+    helper dist ((Numeric v):vs) ((Numeric w):ws) r = helper ((abs(v - w) ** 2) + dist) vs ws r
 
-calcMode :: [Features] -> Features
-calcMode vs = index [] vs
+
+calcPrototype :: [Features] -> Features
+calcPrototype vs = index [] vs
   where
     index acc [] = acc
     index acc vs = case (head vs) of
